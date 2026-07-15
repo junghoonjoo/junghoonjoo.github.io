@@ -46,8 +46,8 @@
     lives: 0,
     misses: 0,
     level: 1,
-    speed: 88,
-    spawnInterval: 1200,
+    speed: 0.08,
+    spawnInterval: 950,
     move: null,
     lastDirection: "none",
     balloons: [],
@@ -164,8 +164,8 @@
     state.lives = 0;
     state.misses = 0;
     state.level = 1;
-    state.speed = 88;
-    state.spawnInterval = 1200;
+    state.speed = 0.08;
+    state.spawnInterval = 950;
     state.lastShotAt = 0;
     state.weapon = {
       level: 0,
@@ -293,10 +293,10 @@
     renderPlayer();
   }
 
-  function spawnBalloon({ visible = false } = {}) {
+  function spawnBalloon({ visible = false, lane = null, y = null } = {}) {
     const typeMeta = balloonTypes[Math.floor(Math.random() * balloonTypes.length)];
     const shapeClass = balloonShapes[Math.floor(Math.random() * balloonShapes.length)];
-    const size = 44 + Math.random() * 28;
+    const size = 54 + Math.random() * 28;
     const levelScale = Math.max(0.7, 1 - (state.level - 1) * 0.05);
     const height = size * (typeMeta.type === "score" ? 1.18 : 1);
     const el = document.createElement("div");
@@ -308,15 +308,17 @@
       el,
       type: typeMeta.type,
       value: typeMeta.value,
-      x: clamp(0.08 + Math.random() * 0.84, 0.08, 0.92),
-      y: visible ? 0.1 + Math.random() * 0.18 : -0.14,
+      x: clamp(typeof lane === "number" ? lane : 0.08 + Math.random() * 0.84, 0.08, 0.92),
+      y: visible ? (typeof y === "number" ? y : 0.08 + Math.random() * 0.24) : -0.18,
       size: size * levelScale,
       height: height * levelScale,
-      speed: state.speed * (0.72 + Math.random() * 0.55),
-      drift: (Math.random() - 0.5) * 0.1,
+      speed: state.speed * (0.58 + Math.random() * 0.5),
+      drift: (Math.random() - 0.5) * 0.08,
       spin: (Math.random() - 0.5) * 1.2,
       lifeBonus: typeMeta.type === "heart" ? 1 : 0,
       growthBonus: typeMeta.type === "growth" ? 1 : 0,
+      age: 0,
+      phase: Math.random() * Math.PI * 2,
     };
 
     state.balloons.push(balloon);
@@ -328,8 +330,14 @@
     if (state.balloons.length > 0) {
       return;
     }
-    spawnBalloon({ visible: true });
-    spawnBalloon({ visible: true });
+    const lanes = [0.14, 0.28, 0.42, 0.56, 0.70, 0.84];
+    lanes.forEach((lane, index) => {
+      spawnBalloon({
+        visible: true,
+        lane,
+        y: 0.08 + index * 0.045,
+      });
+    });
   }
 
   function fireArrow() {
@@ -371,8 +379,8 @@
     const nextLevel = Math.floor(state.score / 100) + 1;
     if (nextLevel > state.level) {
       state.level = nextLevel;
-      state.speed = 88 + (state.level - 1) * 18;
-      state.spawnInterval = Math.max(520, 1200 - (state.level - 1) * 130);
+      state.speed = 0.08 + (state.level - 1) * 0.015;
+      state.spawnInterval = Math.max(420, 950 - (state.level - 1) * 110);
       state.player.speed = 0.38 + (state.level - 1) * 0.015;
       state.player.growth = Math.min(5, state.player.growth + 1);
       updatePlayerShape();
@@ -473,8 +481,8 @@
     if (!move) {
       return;
     }
-    state.player.x += move.dx * state.player.speed * dt;
-    state.player.y += move.dy * state.player.speed * dt;
+    state.player.x += move.dx * state.player.speed * (dt / 1000);
+    state.player.y += move.dy * state.player.speed * (dt / 1000);
     state.player.x = clamp(state.player.x, 0.08, 0.92);
     state.player.y = clamp(state.player.y, 0.58, 0.92);
   }
@@ -519,8 +527,10 @@
     const rect = arenaRect();
     for (let i = state.balloons.length - 1; i >= 0; i -= 1) {
       const balloon = state.balloons[i];
+      balloon.age += dt;
       balloon.y += (balloon.speed / 1000) * dt;
       balloon.x += balloon.drift * dt * 0.2;
+      balloon.x += Math.sin(balloon.age * 0.003 + balloon.phase) * dt * 0.00045;
       balloon.x = clamp(balloon.x, 0.06, 0.94);
 
       if (balloon.y > 1.08) {
