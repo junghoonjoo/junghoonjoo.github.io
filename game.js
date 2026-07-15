@@ -30,8 +30,8 @@
   const balloonTypes = [
     { type: "score", label: "10", className: "balloon-score", value: 10 },
     { type: "score", label: "20", className: "balloon-score", value: 20 },
-    { type: "heart", label: "♥", className: "balloon-heart", value: 0 },
-    { type: "growth", label: "G", className: "balloon-growth", value: 0 },
+    { type: "heart", label: "+1", className: "balloon-heart", value: 0 },
+    { type: "growth", label: "UP", className: "balloon-growth", value: 0 },
   ];
 
   const state = {
@@ -43,7 +43,7 @@
     spawnClock: 0,
     score: 0,
     best: Number(localStorage.getItem(storageKey) || 0),
-    lives: 0,
+    lives: 3,
     misses: 0,
     level: 1,
     speed: 0.08,
@@ -103,10 +103,12 @@
     const height = rect.height * state.player.height;
     const x = clamp(state.player.x * rect.width - width / 2, 8, rect.width - width - 8);
     const y = clamp(state.player.y * rect.height - height / 2, 8, rect.height - height - 8);
+
     playerEl.style.width = `${width}px`;
     playerEl.style.height = `${height}px`;
     playerEl.style.left = `${x}px`;
     playerEl.style.top = `${y}px`;
+    playerEl.style.zIndex = "6";
   }
 
   function renderBalloon(balloon) {
@@ -115,18 +117,22 @@
     const height = balloon.height;
     const x = balloon.x * rect.width - width / 2;
     const y = balloon.y * rect.height - height / 2;
+
     balloon.el.style.width = `${width}px`;
     balloon.el.style.height = `${height}px`;
-    balloon.el.style.transform = `translate(${x}px, ${y}px) rotate(${balloon.spin * balloon.y * 180}deg)`;
+    balloon.el.style.transform = `translate(${x}px, ${y}px) rotate(${balloon.spin * balloon.age * 0.06}deg)`;
+    balloon.el.style.zIndex = String(20 + Math.round((1 - balloon.y) * 100));
   }
 
   function renderArrow(arrow) {
     const rect = arenaRect();
     const x = arrow.x * rect.width - arrow.width / 2;
     const y = arrow.y * rect.height - arrow.height / 2;
+
     arrow.el.style.width = `${arrow.width}px`;
     arrow.el.style.height = `${arrow.height}px`;
     arrow.el.style.transform = `translate(${x}px, ${y}px)`;
+    arrow.el.style.zIndex = "30";
   }
 
   function clearEntities(list) {
@@ -153,7 +159,14 @@
     state.player.width = clamp(0.12 + state.player.growth * 0.015, 0.12, 0.24);
   }
 
-  function resetGame({ keepReadyStatus = true, seedBalloons = true } = {}) {
+  function cancelLoop() {
+    if (state.rafId) {
+      cancelAnimationFrame(state.rafId);
+      state.rafId = 0;
+    }
+  }
+
+  function resetGame({ keepReadyStatus = true, seedBalloons = false } = {}) {
     cancelLoop();
     state.running = false;
     state.paused = false;
@@ -161,7 +174,7 @@
     state.lastFrame = 0;
     state.spawnClock = 0;
     state.score = 0;
-    state.lives = 0;
+    state.lives = 3;
     state.misses = 0;
     state.level = 1;
     state.speed = 0.08;
@@ -174,24 +187,21 @@
       arrowWidth: 12,
       arrowHeight: 26,
     };
+
     clearEntities(state.balloons);
     clearEntities(state.arrows);
     resetPlayer();
     updatePlayerShape();
     syncHud();
+
     if (keepReadyStatus) {
       setStatus("Ready");
     }
+
     renderPlayer();
+
     if (seedBalloons) {
       spawnInitialBalloons();
-    }
-  }
-
-  function cancelLoop() {
-    if (state.rafId) {
-      cancelAnimationFrame(state.rafId);
-      state.rafId = 0;
     }
   }
 
@@ -209,19 +219,22 @@
 
   function startGame() {
     if (state.over) {
-      resetGame({ keepReadyStatus: false, seedBalloons: true });
+      resetGame({ keepReadyStatus: false, seedBalloons: false });
     }
     if (state.running && !state.paused) {
       return;
     }
+
     state.running = true;
     state.paused = false;
     state.loopToken += 1;
     state.lastFrame = 0;
-    state.spawnClock = Math.max(state.spawnClock, 250);
+    state.spawnClock = Math.max(state.spawnClock, 120);
+
     if (state.balloons.length === 0) {
       spawnInitialBalloons();
     }
+
     setStatus("Running");
     scheduleLoop();
   }
@@ -230,24 +243,28 @@
     if (!state.running || state.over) {
       return;
     }
+
     state.paused = !state.paused;
     state.loopToken += 1;
+
     if (state.paused) {
       cancelLoop();
       setStatus("Paused");
-    } else {
-      state.lastFrame = 0;
-      setStatus("Running");
-      scheduleLoop();
+      return;
     }
+
+    state.lastFrame = 0;
+    setStatus("Running");
+    scheduleLoop();
   }
 
   function restartGame() {
-    resetGame({ keepReadyStatus: false, seedBalloons: true });
+    resetGame({ keepReadyStatus: false, seedBalloons: false });
     state.running = true;
     state.paused = false;
     state.loopToken += 1;
     setStatus("Running");
+    spawnInitialBalloons();
     scheduleLoop();
   }
 
@@ -265,8 +282,10 @@
     if (!controls[direction] || !directionAllowed(direction)) {
       return;
     }
+
     state.move = direction;
     state.lastDirection = direction;
+
     if (!state.running && !state.over) {
       startGame();
     }
@@ -283,25 +302,32 @@
     if (!rect.width) {
       return;
     }
+
     const x = (event.clientX - rect.left) / rect.width;
     state.player.x = clamp(x, 0.08, 0.92);
     state.move = null;
     state.lastDirection = "none";
+
     if (!state.running && !state.over) {
       startGame();
     }
+
     renderPlayer();
   }
 
   function spawnBalloon({ visible = false, lane = null, y = null } = {}) {
     const typeMeta = balloonTypes[Math.floor(Math.random() * balloonTypes.length)];
     const shapeClass = balloonShapes[Math.floor(Math.random() * balloonShapes.length)];
-    const size = 54 + Math.random() * 28;
-    const levelScale = Math.max(0.7, 1 - (state.level - 1) * 0.05);
-    const height = size * (typeMeta.type === "score" ? 1.18 : 1);
+    const baseSize = 48 + Math.random() * 36;
+    const levelScale = Math.max(0.72, 1 - (state.level - 1) * 0.045);
+    const typeScale = typeMeta.type === "heart" ? 1.1 : typeMeta.type === "growth" ? 1.06 : 1;
+    const width = baseSize * levelScale * typeScale;
+    const height = baseSize * (typeMeta.type === "score" ? 1.18 : 1) * levelScale * typeScale;
     const el = document.createElement("div");
+
     el.className = `balloon ${typeMeta.className} ${shapeClass}`;
     el.textContent = typeMeta.label;
+    el.style.pointerEvents = "none";
     arena.appendChild(el);
 
     const balloon = {
@@ -310,9 +336,9 @@
       value: typeMeta.value,
       x: clamp(typeof lane === "number" ? lane : 0.08 + Math.random() * 0.84, 0.08, 0.92),
       y: visible ? (typeof y === "number" ? y : 0.08 + Math.random() * 0.24) : -0.18,
-      size: size * levelScale,
-      height: height * levelScale,
-      speed: state.speed * (0.58 + Math.random() * 0.5),
+      size: width,
+      height,
+      speed: state.speed * (0.58 + Math.random() * 0.5) * (typeMeta.type === "heart" ? 0.95 : 1),
       drift: (Math.random() - 0.5) * 0.08,
       spin: (Math.random() - 0.5) * 1.2,
       lifeBonus: typeMeta.type === "heart" ? 1 : 0,
@@ -330,12 +356,13 @@
     if (state.balloons.length > 0) {
       return;
     }
-    const lanes = [0.14, 0.28, 0.42, 0.56, 0.70, 0.84];
+
+    const lanes = [0.14, 0.28, 0.42, 0.56, 0.7, 0.84];
     lanes.forEach((lane, index) => {
       spawnBalloon({
         visible: true,
         lane,
-        y: 0.08 + index * 0.045,
+        y: 0.1 + index * 0.05,
       });
     });
   }
@@ -344,20 +371,25 @@
     if (state.over) {
       return;
     }
+
     if (!state.running) {
       startGame();
     }
+
     if (state.paused) {
       return;
     }
+
     const now = performance.now();
     if (now - state.lastShotAt < state.weapon.fireDelay) {
       return;
     }
+
     state.lastShotAt = now;
 
     const el = document.createElement("div");
     el.className = "arrow";
+    el.style.pointerEvents = "none";
     arena.appendChild(el);
 
     const arrow = {
@@ -376,6 +408,7 @@
   function addScore(points) {
     state.score += points;
     persistBest();
+
     const nextLevel = Math.floor(state.score / 100) + 1;
     if (nextLevel > state.level) {
       state.level = nextLevel;
@@ -386,6 +419,7 @@
       updatePlayerShape();
       setStatus(`Level ${state.level}`);
     }
+
     syncHud();
   }
 
@@ -464,23 +498,16 @@
     };
   }
 
-  function playerBounds(rect) {
-    return {
-      x: state.player.x * rect.width - (rect.width * state.player.width) / 2,
-      y: state.player.y * rect.height - (rect.height * state.player.height) / 2,
-      w: rect.width * state.player.width,
-      h: rect.height * state.player.height,
-    };
-  }
-
   function updatePlayer(dt) {
     if (!state.move) {
       return;
     }
+
     const move = controls[state.move];
     if (!move) {
       return;
     }
+
     state.player.x += move.dx * state.player.speed * (dt / 1000);
     state.player.y += move.dy * state.player.speed * (dt / 1000);
     state.player.x = clamp(state.player.x, 0.08, 0.92);
@@ -489,9 +516,11 @@
 
   function updateArrows(dt) {
     const rect = arenaRect();
+
     for (let i = state.arrows.length - 1; i >= 0; i -= 1) {
       const arrow = state.arrows[i];
       arrow.y -= (arrow.speed / 1000) * dt;
+
       if (arrow.y < -0.2) {
         arrow.el.remove();
         state.arrows.splice(i, 1);
@@ -504,9 +533,9 @@
       for (let j = state.balloons.length - 1; j >= 0; j -= 1) {
         const balloon = state.balloons[j];
         const balloonRect = balloonBounds(balloon, rect);
+
         if (rectsIntersect(arrowRect, balloonRect)) {
           resolveBalloonHit(balloon);
-          balloon.el.remove();
           state.balloons.splice(j, 1);
           hit = true;
           break;
@@ -524,7 +553,6 @@
   }
 
   function updateBalloons(dt) {
-    const rect = arenaRect();
     for (let i = state.balloons.length - 1; i >= 0; i -= 1) {
       const balloon = state.balloons[i];
       balloon.age += dt;
@@ -546,6 +574,7 @@
 
   function spawnLogic(dt) {
     state.spawnClock += dt;
+
     if (state.spawnClock >= state.spawnInterval) {
       const spawnCount = state.level >= 4 && Math.random() > 0.6 ? 2 : 1;
       for (let i = 0; i < spawnCount; i += 1) {
@@ -559,9 +588,11 @@
     if (!state.running || state.paused || state.over) {
       return;
     }
+
     if (state.lastFrame === 0) {
       state.lastFrame = timestamp;
     }
+
     const dt = Math.min(32, timestamp - state.lastFrame);
     state.lastFrame = timestamp;
 
@@ -607,6 +638,7 @@
     if (!direction) {
       return;
     }
+
     event.preventDefault();
     setMove(direction);
   }
@@ -626,6 +658,7 @@
       d: "right",
       D: "right",
     };
+
     const direction = keyMap[event.key];
     if (direction) {
       stopMove(direction);
@@ -678,6 +711,7 @@
         aimWithPointer(event);
       }
     });
+
     arena.addEventListener("pointerdown", (event) => {
       if (event.pointerType === "mouse" || event.pointerType === "pen") {
         aimWithPointer(event);
@@ -697,7 +731,7 @@
   function initialize() {
     bestEl.textContent = String(state.best);
     syncHud();
-    resetGame({ keepReadyStatus: true, seedBalloons: true });
+    resetGame({ keepReadyStatus: true, seedBalloons: false });
     bindControls();
     setStatus("Ready");
   }
